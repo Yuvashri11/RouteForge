@@ -1,21 +1,20 @@
 {
-  "name": "app",
-  "version": "1.0.50",
+  "name": "api-backend",
+  "version": "1.0.0",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "bun run --watch src/index.ts"
   },
   "dependencies": {
-    "@elysiajs/cookie": "^0.8.0",
-    "@elysiajs/jwt": "^1.4.1",
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@elysiajs/cors": "^1.4.1",
+    "@google/genai": "^0.14.0",
     "db": "workspace:*",
-    "elysia": "1.4.28"
+    "elysia": "1.4.28",
+    "openai": "^4.86.2"
   },
   "devDependencies": {
     "bun-types": "latest"
   },
-  "module": "src/index.js",
-  "exports": {
-    "./app": "./src/app.ts"
-  }
+  "module": "src/index.js"
 }
