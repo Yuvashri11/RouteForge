@@ -11,17 +11,21 @@ import type { ModelItem } from "@/types";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowUp,
+  Bookmark,
   Bot,
   Code2,
   Cpu,
   Loader2,
+  Share2,
   Sparkles,
+  Trash2,
   User,
   Zap,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const API_GATEWAY_URL = "http://localhost:4000";
+const SAVED_CHATS_STORAGE_KEY = "routeforge.chat.saved.v1";
 
 type ChatRole = "user" | "assistant";
 
@@ -32,6 +36,119 @@ interface ChatMessage {
   model?: string;
   inputTokens?: number;
   outputTokens?: number;
+}
+
+type SavedChat = {
+  id: string;
+  title: string;
+  model: string;
+  messages: ChatMessage[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ChatFailureInfo = {
+  status?: number;
+  code?: string;
+  type?: string;
+  message: string;
+};
+
+class ChatRequestError extends Error {
+  status?: number;
+  code?: string;
+  type?: string;
+
+  constructor(info: ChatFailureInfo) {
+    super(info.message);
+    this.name = "ChatRequestError";
+    this.status = info.status;
+    this.code = info.code;
+    this.type = info.type;
+  }
+}
+
+function parseFailureInfo(raw: unknown, fallbackStatus?: number): ChatFailureInfo {
+  const objectValue = typeof raw === "object" && raw !== null ? raw : null;
+  const topMessage =
+    objectValue && "message" in objectValue
+      ? String((objectValue as { message?: unknown }).message ?? "")
+      : "";
+
+  const nestedError =
+    objectValue && "error" in objectValue
+      ? ((objectValue as { error?: unknown }).error as
+          | { message?: unknown; code?: unknown; type?: unknown }
+          | undefined)
+      : undefined;
+
+  const nestedMessage = nestedError?.message ? String(nestedError.message) : "";
+  const nestedCode = nestedError?.code ? String(nestedError.code) : undefined;
+  const nestedType = nestedError?.type ? String(nestedError.type) : undefined;
+
+  return {
+    status: fallbackStatus,
+    code: nestedCode,
+    type: nestedType,
+    message:
+      nestedMessage ||
+      topMessage ||
+      (fallbackStatus ? `Request failed with status ${fallbackStatus}` : "Request failed"),
+  };
+}
+
+function sanitizeSensitiveText(value: string) {
+  return value
+    .replace(/sk-[a-zA-Z0-9_-]{8,}/g, "[REDACTED_KEY]")
+    .replace(/api[_-]?key\s*[:=]\s*[^\s,;]+/gi, "api_key=[REDACTED]")
+    .replace(/bearer\s+[a-zA-Z0-9._-]+/gi, "Bearer [REDACTED]")
+    .replace(/token\s*[:=]\s*[^\s,;]+/gi, "token=[REDACTED]");
+}
+
+function toUserFacingFailureMessage(error: unknown) {
+  const fallback =
+    "I could not complete that request due to an unexpected error. Please try again.";
+
+  if (!(error instanceof Error)) return fallback;
+
+  const message = error.message.toLowerCase();
+  const status = (error as { status?: number }).status;
+  const code = (error as { code?: string }).code?.toLowerCase();
+  const type = (error as { type?: string }).type?.toLowerCase();
+
+  if (
+    status === 429 ||
+    code === "rate_limit_exceeded" ||
+    type?.includes("rate") ||
+    message.includes("rate limit") ||
+    message.includes("too many requests")
+  ) {
+    return "I could not complete that request because the model provider rate-limited it (429). Please retry in a few seconds or switch to another model.";
+  }
+
+  if (
+    status === 401 ||
+    status === 403 ||
+    code === "invalid_api_key" ||
+    type?.includes("auth") ||
+    message.includes("invalid api key") ||
+    message.includes("incorrect api key") ||
+    message.includes("api key provided") ||
+    message.includes("missing x-api-key") ||
+    message.includes("unauthorized")
+  ) {
+    return "I could not complete that request because authentication failed. Please verify your API key and permissions, then try again.";
+  }
+
+  if (status === 400 || message.includes("model not found")) {
+    return "I could not complete that request because the selected model is not available. Please choose a different model and try again.";
+  }
+
+  if (status === 408 || message.includes("timeout") || message.includes("timed out")) {
+    return "I could not complete that request because the model timed out. Please retry, or use a faster model.";
+  }
+
+  return `I could not complete that request: ${sanitizeSensitiveText(error.message)}`;
 }
 
 const suggestionCards = [
@@ -81,12 +198,45 @@ function groupModelsByCompany(models: ModelItem[]) {
   return groups;
 }
 
+function buildChatTitle(messages: ChatMessage[]) {
+  const firstUserMessage = messages.find((message) => message.role === "user");
+  const fallback = "New chat";
+
+  if (!firstUserMessage?.content.trim()) return fallback;
+
+  const normalized = firstUserMessage.content.replace(/\s+/g, " ").trim();
+  return normalized.length > 56 ? `${normalized.slice(0, 56)}...` : normalized;
+}
+
+function sortSavedChats(chats: SavedChat[]) {
+  return chats
+    .slice()
+    .sort(
+      (a, b) =>
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+    );
+}
+
+function formatSavedChatTimestamp(iso: string) {
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) return "";
+
+  return value.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function ChatPage() {
   const [selectedModel, setSelectedModel] = useState("");
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedApiKey, setSelectedApiKey] = useState("");
+  const [savedChats, setSavedChats] = useState<SavedChat[]>([]);
+  const [activeSavedChatId, setActiveSavedChatId] = useState("new");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -114,6 +264,39 @@ export function ChatPage() {
     }
   }, [keysQuery.data, selectedApiKey]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const stored = window.localStorage.getItem(SAVED_CHATS_STORAGE_KEY);
+      if (!stored) return;
+
+      const parsed = JSON.parse(stored) as SavedChat[];
+      if (!Array.isArray(parsed)) return;
+
+      const normalized = parsed.filter(
+        (chat) =>
+          Boolean(chat?.id) &&
+          typeof chat?.title === "string" &&
+          typeof chat?.model === "string" &&
+          Array.isArray(chat?.messages),
+      );
+
+      setSavedChats(sortSavedChats(normalized));
+    } catch {
+      // Ignore malformed persisted payloads.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    window.localStorage.setItem(
+      SAVED_CHATS_STORAGE_KEY,
+      JSON.stringify(sortSavedChats(savedChats)),
+    );
+  }, [savedChats]);
+
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -130,6 +313,10 @@ export function ChatPage() {
   const models = modelsQuery.data ?? [];
   const grouped = groupModelsByCompany(models);
   const hasConversation = messages.length > 0;
+  const activeSavedChat = useMemo(
+    () => savedChats.find((chat) => chat.id === activeSavedChatId),
+    [activeSavedChatId, savedChats],
+  );
 
   async function sendMessage(content: string) {
     if (!content.trim() || !selectedApiKey || !selectedModel || isLoading)
@@ -152,6 +339,7 @@ export function ChatPage() {
     setMessages((prev) => [...prev, userMsg, assistantPlaceholder]);
     setInput("");
     setIsLoading(true);
+    let receivedAnyAssistantContent = false;
 
     try {
       const response = await fetch(
@@ -180,9 +368,7 @@ export function ChatPage() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
-        throw new Error(
-          errorData?.message ?? `Request failed with status ${response.status}`,
-        );
+        throw new ChatRequestError(parseFailureInfo(errorData, response.status));
       }
 
       const reader = response.body?.getReader();
@@ -208,47 +394,61 @@ export function ChatPage() {
           const payload = trimmed.slice(6); // strip "data: "
           if (payload === "[DONE]") continue;
 
+          let parsed: any;
           try {
-            const parsed = JSON.parse(payload);
-
-            // Delta content
-            const delta = parsed.choices?.[0]?.delta?.content;
-            if (delta) {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId
-                    ? { ...m, content: m.content + delta }
-                    : m,
-                ),
-              );
-            }
-
-            // Usage stats (on finish)
-            if (parsed.usage) {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId
-                    ? {
-                        ...m,
-                        inputTokens: parsed.usage.prompt_tokens,
-                        outputTokens: parsed.usage.completion_tokens,
-                      }
-                    : m,
-                ),
-              );
-            }
+            parsed = JSON.parse(payload);
           } catch {
             // Ignore malformed SSE chunks
+            continue;
+          }
+
+          if (parsed?.error) {
+            throw new ChatRequestError(parseFailureInfo(parsed));
+          }
+
+          // Delta content
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (delta) {
+            receivedAnyAssistantContent = true;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: m.content + delta }
+                  : m,
+              ),
+            );
+          }
+
+          // Usage stats (on finish)
+          if (parsed.usage) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      inputTokens: parsed.usage.prompt_tokens,
+                      outputTokens: parsed.usage.completion_tokens,
+                    }
+                  : m,
+              ),
+            );
           }
         }
       }
+
+      if (!receivedAnyAssistantContent) {
+        throw new ChatRequestError({
+          message: "The model closed the stream before returning any content.",
+        });
+      }
     } catch (err) {
+      const userFacingMessage = toUserFacingFailureMessage(err);
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
             ? {
                 ...m,
-                content: `⚠️ Error: ${err instanceof Error ? err.message : "Something went wrong"}`,
+                content: `⚠️ ${userFacingMessage}`,
               }
             : m,
         ),
@@ -268,8 +468,84 @@ export function ChatPage() {
   function newChat() {
     setMessages([]);
     setInput("");
+    setActiveSavedChatId("new");
     textareaRef.current?.focus();
   }
+
+  function saveCurrentChat() {
+    const meaningfulMessages = messages.filter((message) => message.content.trim().length > 0);
+    if (!meaningfulMessages.length) return;
+
+    const existing = savedChats.find((chat) => chat.id === activeSavedChatId);
+    const now = new Date().toISOString();
+    const nextId = existing?.id ?? crypto.randomUUID();
+
+    const nextSavedChat: SavedChat = {
+      id: nextId,
+      title: buildChatTitle(meaningfulMessages),
+      model: selectedModel,
+      messages: meaningfulMessages,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+
+    setSavedChats((previous) =>
+      sortSavedChats([
+        nextSavedChat,
+        ...previous.filter((chat) => chat.id !== nextSavedChat.id),
+      ]),
+    );
+    setActiveSavedChatId(nextSavedChat.id);
+  }
+
+  function handleSavedChatChange(savedChatId: string) {
+    if (savedChatId === "new") {
+      newChat();
+      return;
+    }
+
+    const chat = savedChats.find((entry) => entry.id === savedChatId);
+    if (!chat) return;
+
+    setActiveSavedChatId(chat.id);
+    setMessages(chat.messages);
+    setInput("");
+    setSelectedModel(chat.model);
+  }
+
+  function deleteActiveSavedChat() {
+    if (!activeSavedChat || isLoading) return;
+
+    setSavedChats((previous) => previous.filter((chat) => chat.id !== activeSavedChat.id));
+    setActiveSavedChatId("new");
+    setMessages([]);
+    setInput("");
+  }
+
+  useEffect(() => {
+    if (activeSavedChatId === "new" || isLoading) return;
+
+    const meaningfulMessages = messages.filter((message) => message.content.trim().length > 0);
+    if (!meaningfulMessages.length) return;
+
+    setSavedChats((previous) => {
+      const existing = previous.find((chat) => chat.id === activeSavedChatId);
+      if (!existing) return previous;
+
+      const updated: SavedChat = {
+        ...existing,
+        title: buildChatTitle(meaningfulMessages),
+        model: selectedModel,
+        messages: meaningfulMessages,
+        updatedAt: new Date().toISOString(),
+      };
+
+      return sortSavedChats([
+        updated,
+        ...previous.filter((chat) => chat.id !== activeSavedChatId),
+      ]);
+    });
+  }, [activeSavedChatId, isLoading, messages, selectedModel]);
 
   const activeKeys = keysQuery.data?.filter((k) => !k.disabled) ?? [];
 
@@ -285,6 +561,44 @@ export function ChatPage() {
             className="shrink-0 border-border bg-accent/50 text-foreground hover:bg-accent"
           >
             New Chat
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={saveCurrentChat}
+            disabled={!hasConversation || isLoading}
+            className="shrink-0 border-border bg-accent/50 text-foreground hover:bg-accent"
+          >
+            <Bookmark className="size-3.5" />
+            {activeSavedChat ? "Update Chat" : "Save Chat"}
+          </Button>
+
+          <Select value={activeSavedChatId} onValueChange={handleSavedChatChange}>
+            <SelectTrigger className="w-56 border-border bg-muted text-foreground text-xs">
+              <SelectValue placeholder="Saved chats" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="new" className="text-xs">
+                Current unsaved chat
+              </SelectItem>
+              {savedChats.map((chat) => (
+                <SelectItem key={chat.id} value={chat.id} className="text-xs">
+                  {chat.title} {formatSavedChatTimestamp(chat.updatedAt) ? `- ${formatSavedChatTimestamp(chat.updatedAt)}` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={deleteActiveSavedChat}
+            disabled={!activeSavedChat || isLoading}
+            className="shrink-0 text-muted-foreground hover:text-foreground"
+            title="Delete selected saved chat"
+          >
+            <Trash2 className="size-4" />
           </Button>
 
           {/* Model selector */}
@@ -350,7 +664,7 @@ export function ChatPage() {
           /* Empty state — suggestion cards */
           <div className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center px-4">
             <div className="mb-2 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500/20 to-emerald-500/20 shadow-lg shadow-cyan-500/10">
-              <Zap className="size-7 text-cyan-500" />
+              <Share2 className="size-7 text-cyan-500" />
             </div>
             <h2 className="text-xl font-semibold text-foreground">
               RouteForge Chat

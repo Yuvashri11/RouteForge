@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { publishProfileUpdate, publishProviderMetric } from "../lib/redis";
 import { getLlmProvider } from "../llms";
 import type { ChatMessage, StreamChunk } from "../llms";
 
@@ -8,6 +9,8 @@ type ChatCompletionResult = {
   inputTokens: number;
   outputTokens: number;
 };
+
+type ProviderChatCompletionResult = Omit<ChatCompletionResult, "model">;
 
 export abstract class ChatService {
   static async validateApiKey(apiKeyString: string) {
@@ -73,10 +76,29 @@ export abstract class ChatService {
       ? modelSlug.split("/").slice(1).join("/")
       : modelSlug;
 
-    const response = await llmProvider.chat({
-      messages,
-      model: actualModelName,
-    });
+    const startedAt = Date.now();
+    let response: ProviderChatCompletionResult;
+
+    try {
+      response = await llmProvider.chat({
+        messages,
+        model: actualModelName,
+      });
+    } catch (error) {
+      await publishProviderMetric({
+        modelSlug,
+        providerName: providerRecord.name,
+        latencyMs: Date.now() - startedAt,
+        throughputTps: 0,
+        success: false,
+        timestamp: new Date().toISOString(),
+      });
+      throw error;
+    }
+
+    const latencyMs = Date.now() - startedAt;
+    const latencySec = Math.max(latencyMs / 1000, 0.001);
+    const throughputTps = Number((response.outputTokens / latencySec).toFixed(2));
 
     // Calculate credit cost: inputTokens × inputTokenCost + outputTokens × outputTokenCost
     const creditCost =
@@ -109,6 +131,17 @@ export abstract class ChatService {
       }),
     ]);
 
+    // Publish to Redis to instantly update the UI over SSE
+    await publishProfileUpdate(apiKey.userId);
+    await publishProviderMetric({
+      modelSlug,
+      providerName: providerRecord.name,
+      latencyMs,
+      throughputTps,
+      success: true,
+      timestamp: new Date().toISOString(),
+    });
+
     return {
       content: response.content,
       model: modelSlug,
@@ -136,7 +169,7 @@ export abstract class ChatService {
       throw new ModelNotFoundError(`Model not found: ${modelSlug}`);
     }
 
-    const { model, mapping } = resolved;
+    const { model, mapping, provider: providerRecord } = resolved;
 
     const companyName = model.company.name.toLowerCase();
     const llmProvider = getLlmProvider(companyName);
@@ -145,6 +178,7 @@ export abstract class ChatService {
       ? modelSlug.split("/").slice(1).join("/")
       : modelSlug;
 
+    const startedAt = Date.now();
     const stream = llmProvider.chatStream({
       messages,
       model: actualModelName,
@@ -154,15 +188,28 @@ export abstract class ChatService {
     let inputTokens = 0;
     let outputTokens = 0;
 
-    for await (const chunk of stream) {
-      yield chunk;
+    try {
+      for await (const chunk of stream) {
+        yield chunk;
 
-      if (chunk.type === "delta") {
-        fullContent += chunk.content;
-      } else if (chunk.type === "done") {
-        inputTokens = chunk.inputTokens;
-        outputTokens = chunk.outputTokens;
+        if (chunk.type === "delta") {
+          fullContent += chunk.content;
+        } else if (chunk.type === "done") {
+          inputTokens = chunk.inputTokens;
+          outputTokens = chunk.outputTokens;
+        }
       }
+    } catch (error) {
+      await publishProviderMetric({
+        modelSlug,
+        providerName: providerRecord.name,
+        latencyMs: Date.now() - startedAt,
+        throughputTps: 0,
+        success: false,
+        timestamp: new Date().toISOString(),
+      });
+
+      throw error;
     }
 
     // After stream ends: deduct credits and log conversation
@@ -194,6 +241,22 @@ export abstract class ChatService {
         },
       }),
     ]);
+
+    // Publish to Redis to instantly update the UI over SSE
+    await publishProfileUpdate(apiKey.userId);
+
+    const latencyMs = Date.now() - startedAt;
+    const latencySec = Math.max(latencyMs / 1000, 0.001);
+    const throughputTps = Number((outputTokens / latencySec).toFixed(2));
+
+    await publishProviderMetric({
+      modelSlug,
+      providerName: providerRecord.name,
+      latencyMs,
+      throughputTps,
+      success: true,
+      timestamp: new Date().toISOString(),
+    });
   }
 }
 

@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signIn } from "@/lib/api/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Lock, Mail, Zap } from "lucide-react";
+import { Lock, Mail, Share2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -35,7 +35,7 @@ export function SignInPage() {
         {/* Logo */}
         <div className="mb-8 flex items-center justify-center gap-2">
           <span className="grid size-9 place-items-center rounded-lg bg-cyan-500/20 text-cyan-400">
-            <Zap className="size-5" />
+            <Share2 className="size-5" />
           </span>
           <span className="text-lg font-semibold tracking-tight text-foreground">
             RouteForge

@@ -39,6 +39,35 @@ export type ModelProviderItem = {
   outputTokenCost: number;
 };
 
+export type ModelProviderMetricItem = {
+  providerName: string;
+  requestCount: number;
+  successCount: number;
+  failureCount: number;
+  errorRatePct: number;
+  avgLatencyMs: number;
+  avgThroughputTps: number;
+  uptimePct: number;
+  lastUpdatedAt: string;
+};
+
+export type ModelProviderMetricTimeseriesPoint = {
+  timestamp: string;
+  requestCount: number;
+  errorRatePct: number;
+  avgLatencyMs: number;
+  p95LatencyMs: number;
+  avgThroughputTps: number;
+  uptimePct: number;
+  e2eLatencyMs: number;
+  p95E2eLatencyMs: number;
+};
+
+export type ModelProviderMetricTimeseriesItem = {
+  providerName: string;
+  points: ModelProviderMetricTimeseriesPoint[];
+};
+
 export type RankingModel = {
   name: string;
   company: string;

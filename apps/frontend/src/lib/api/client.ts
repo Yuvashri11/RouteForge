@@ -2,6 +2,8 @@ import { api } from "@/lib/api/treaty";
 import type {
   ApiKeyItem,
   ModelItem,
+  ModelProviderMetricItem,
+  ModelProviderMetricTimeseriesItem,
   ModelProviderItem,
   ProviderItem,
   UserProfile,
@@ -80,6 +82,40 @@ export async function getModelProviders(modelId: string) {
     providers: ModelProviderItem[];
   }>;
   return assertSuccess(result, "Failed to fetch model providers").providers;
+}
+
+export async function getModelProviderMetrics(modelSlug: string) {
+  const encodedModelSlug = encodeURIComponent(modelSlug);
+  const result = (await api
+    .metrics
+    .models({ slug: encodedModelSlug })
+    .providers.get()) as TreatyResult<{
+    modelSlug: string;
+    providers: ModelProviderMetricItem[];
+  }>;
+
+  return assertSuccess(result, "Failed to fetch model provider metrics").providers;
+}
+
+export async function getModelProviderMetricTimeseries(
+  modelSlug: string,
+  options?: { windowHours?: number; bucketMinutes?: number },
+) {
+  const encodedModelSlug = encodeURIComponent(modelSlug);
+  const windowHours = options?.windowHours ?? 24;
+  const bucketMinutes = options?.bucketMinutes ?? 30;
+
+  const result = (await api
+    .metrics
+    .models({ slug: encodedModelSlug })
+    .timeseries.get({ query: { windowHours, bucketMinutes } })) as TreatyResult<{
+    modelSlug: string;
+    windowHours: number;
+    bucketMinutes: number;
+    providers: ModelProviderMetricTimeseriesItem[];
+  }>;
+
+  return assertSuccess(result, "Failed to fetch model provider metric timeseries");
 }
 
 export async function listApiKeys() {

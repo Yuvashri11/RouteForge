@@ -3,7 +3,7 @@ import { getProfile } from "@/lib/api/client";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { Menu, Moon, Sun, User, Zap } from "lucide-react";
+import { Menu, Moon, Sun, User, Share2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 
@@ -54,7 +54,7 @@ export function TopNav() {
       <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <Link to="/" className="inline-flex items-center gap-2">
           <span className="grid size-8 place-items-center rounded-lg bg-cyan-500/20 text-cyan-500 dark:text-cyan-300">
-            <Zap className="size-4" />
+            <Share2 className="size-4" />
           </span>
           <span className="text-base font-semibold tracking-tight text-foreground">
             RouteForge

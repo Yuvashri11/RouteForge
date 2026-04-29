@@ -8,6 +8,12 @@ function requestPath(req: Request) {
   return `${url.pathname}${url.search}`;
 }
 
+function backendPathFromApi(req: Request) {
+  const url = new URL(req.url);
+  const strippedPath = url.pathname.replace(/^\/api(?=\/|$)/, "") || "/";
+  return `${strippedPath}${url.search}`;
+}
+
 async function proxyToBackend(req: Request, path: string) {
   const target = new URL(path, backendOrigin);
   const bodyAllowed = req.method !== "GET" && req.method !== "HEAD";
@@ -28,15 +34,8 @@ async function proxyToBackend(req: Request, path: string) {
 const server = serve({
   port: 5173,
   routes: {
-    "/auth/*": (req) => proxyToBackend(req, requestPath(req)),
-    "/api-keys/*": (req) => proxyToBackend(req, requestPath(req)),
-    "/models/*": (req) => proxyToBackend(req, requestPath(req)),
-    "/payments/*": (req) => proxyToBackend(req, requestPath(req)),
-
-    "/auth": (req) => proxyToBackend(req, "/auth"),
-    "/api-keys": (req) => proxyToBackend(req, "/api-keys"),
-    "/models": (req) => proxyToBackend(req, "/models"),
-    "/payments": (req) => proxyToBackend(req, "/payments"),
+    "/api/*": (req) => proxyToBackend(req, backendPathFromApi(req)),
+    "/api": (req) => proxyToBackend(req, "/"),
 
     "/*": index,
   },

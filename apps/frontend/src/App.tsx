@@ -4,12 +4,20 @@ import { ThemeProvider } from "./lib/theme";
 import { queryClient } from "./lib/query";
 import { router } from "./router";
 
+import { ElysiaClientContextProvider } from "./lib/api/context";
+import { api } from "./lib/api/treaty";
+import { SSEProvider } from "./components/SSEProvider";
+
 export function App() {
   return (
     <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
+      <ElysiaClientContextProvider value={api}>
+        <QueryClientProvider client={queryClient}>
+          <SSEProvider>
+            <RouterProvider router={router} />
+          </SSEProvider>
+        </QueryClientProvider>
+      </ElysiaClientContextProvider>
     </ThemeProvider>
   );
 }

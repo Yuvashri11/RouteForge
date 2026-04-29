@@ -4,7 +4,7 @@ import type { App as BackendApp } from "../../../../backend/src/app";
 const backendUrl =
   typeof window === "undefined"
     ? "http://localhost:3000"
-    : window.location.origin;
+    : `${window.location.origin}/api`;
 
 export const api = treaty<BackendApp>(backendUrl, {
   fetch: {

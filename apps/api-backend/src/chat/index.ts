@@ -2,6 +2,121 @@ import Elysia from "elysia";
 import { ChatModel } from "./models";
 import { ChatService, ApiKeyError, ModelNotFoundError } from "./service";
 
+type SafeErrorPayload = {
+  status: number;
+  code: string;
+  type: string;
+  message: string;
+};
+
+function sanitizeSensitiveText(value: string) {
+  return value
+    .replace(/sk-[a-zA-Z0-9_-]{8,}/g, "[REDACTED_KEY]")
+    .replace(/api[_-]?key\s*[:=]\s*[^\s,;]+/gi, "api_key=[REDACTED]")
+    .replace(/bearer\s+[a-zA-Z0-9._-]+/gi, "Bearer [REDACTED]")
+    .replace(/token\s*[:=]\s*[^\s,;]+/gi, "token=[REDACTED]");
+}
+
+function getErrorMeta(err: unknown) {
+  const raw = (err ?? {}) as {
+    status?: unknown;
+    code?: unknown;
+    type?: unknown;
+    name?: unknown;
+    message?: unknown;
+  };
+
+  return {
+    status: typeof raw.status === "number" ? raw.status : undefined,
+    code: typeof raw.code === "string" ? raw.code : undefined,
+    type: typeof raw.type === "string" ? raw.type : undefined,
+    name: typeof raw.name === "string" ? raw.name : undefined,
+    message:
+      err instanceof Error
+        ? err.message
+        : typeof raw.message === "string"
+          ? raw.message
+          : "Internal server error",
+  };
+}
+
+function toSafeErrorPayload(err: unknown): SafeErrorPayload {
+  if (err instanceof ApiKeyError) {
+    return {
+      status: 401,
+      code: "invalid_api_key",
+      type: "auth_error",
+      message: "Authentication failed.",
+    };
+  }
+
+  if (err instanceof ModelNotFoundError) {
+    return {
+      status: 400,
+      code: "model_not_found",
+      type: "invalid_request_error",
+      message: "Requested model is not available.",
+    };
+  }
+
+  const meta = getErrorMeta(err);
+  const message = sanitizeSensitiveText(meta.message).toLowerCase();
+
+  if (
+    meta.status === 429 ||
+    meta.code === "rate_limit_exceeded" ||
+    meta.type?.includes("rate") ||
+    message.includes("rate limit") ||
+    message.includes("too many requests")
+  ) {
+    return {
+      status: 429,
+      code: "rate_limit_exceeded",
+      type: "rate_limit_error",
+      message: "Provider rate limit exceeded. Please retry shortly.",
+    };
+  }
+
+  if (
+    meta.status === 401 ||
+    meta.status === 403 ||
+    meta.code === "invalid_api_key" ||
+    meta.type?.includes("auth") ||
+    message.includes("invalid api key") ||
+    message.includes("incorrect api key") ||
+    message.includes("api key provided") ||
+    message.includes("unauthorized") ||
+    message.includes("authentication")
+  ) {
+    return {
+      status: 401,
+      code: "auth_failed",
+      type: "auth_error",
+      message: "Authentication failed.",
+    };
+  }
+
+  if (
+    meta.status === 408 ||
+    message.includes("timeout") ||
+    message.includes("timed out")
+  ) {
+    return {
+      status: 504,
+      code: "upstream_timeout",
+      type: "timeout_error",
+      message: "Upstream model timed out.",
+    };
+  }
+
+  return {
+    status: 500,
+    code: "internal_error",
+    type: "internal_server_error",
+    message: "Unable to complete request.",
+  };
+}
+
 export const chatRoutes = new Elysia({ prefix: "/api/v1/chat" })
   .resolve(({ headers, status }) => {
     const apiKey = headers["x-api-key"];
@@ -57,10 +172,13 @@ export const chatRoutes = new Elysia({ prefix: "/api/v1/chat" })
                   }
                 }
               } catch (err) {
+                const safeError = toSafeErrorPayload(err);
                 const errorData = JSON.stringify({
                   error: {
-                    message:
-                      err instanceof Error ? err.message : "Stream error",
+                    message: safeError.message,
+                    code: safeError.code,
+                    type: safeError.type,
+                    status: safeError.status,
                   },
                 });
                 controller.enqueue(
@@ -95,16 +213,22 @@ export const chatRoutes = new Elysia({ prefix: "/api/v1/chat" })
           outputTokens: result.outputTokens,
         };
       } catch (e) {
-        if (e instanceof ApiKeyError) {
-          return status(401, { message: e.message });
-        }
+        const safeError = toSafeErrorPayload(e);
+        const meta = getErrorMeta(e);
+        console.error("Chat completion error:", {
+          status: safeError.status,
+          code: safeError.code,
+          type: safeError.type,
+          message: safeError.message,
+          sourceName: meta.name,
+          sourceMessage: sanitizeSensitiveText(meta.message),
+        });
 
-        if (e instanceof ModelNotFoundError) {
-          return status(400, { message: e.message });
-        }
-
-        console.error("Chat completion error:", e);
-        return status(500, { message: "Internal server error" });
+        return status(safeError.status, {
+          message: safeError.message,
+          code: safeError.code,
+          type: safeError.type,
+        });
       }
     },
     {
