@@ -33,11 +33,14 @@ async function proxyToBackend(req: Request, path: string) {
 
 const server = serve({
   port: Number(process.env.PORT ?? 5173),
-  routes: {
-    "/api/*": (req) => proxyToBackend(req, backendPathFromApi(req)),
-    "/api": (req) => proxyToBackend(req, "/"),
+  fetch(req) {
+    const url = new URL(req.url);
 
-    "/*": index,
+    if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+      return proxyToBackend(req, backendPathFromApi(req));
+    }
+
+    return index;
   },
 
   development: process.env.NODE_ENV !== "production" && {

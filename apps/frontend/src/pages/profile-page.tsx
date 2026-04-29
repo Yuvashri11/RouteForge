@@ -25,6 +25,7 @@ export function ProfilePage() {
   });
 
   const profile = profileQuery.data;
+  const credits = Number(profile?.credits ?? 0);
 
   // Loading state
   if (profileQuery.isLoading) {
@@ -114,7 +115,7 @@ export function ProfilePage() {
                 Available Credits
               </p>
               <p className="mt-1 text-3xl font-semibold text-cyan-600 dark:text-cyan-200">
-                {profile.credits.toLocaleString()}
+                {credits.toLocaleString()}
               </p>
             </div>
 
