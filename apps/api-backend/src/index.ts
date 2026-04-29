@@ -1,6 +1,8 @@
 import { app } from "./app";
 
-app.listen(4000);
+const port = Number(process.env.PORT ?? 4000);
+
+app.listen(port);
 
 console.log(
   `🚀 RouteForge API Gateway is running at ${app.server?.hostname}:${app.server?.port}`,

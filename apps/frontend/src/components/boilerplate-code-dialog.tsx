@@ -17,7 +17,8 @@ interface BoilerplateCodeDialogProps {
   keyName: string;
 }
 
-const API_BASE_URL = "http://localhost:4000";
+const API_BASE_URL =
+  process.env.API_GATEWAY_URL ?? "https://routeforge-api-backend.onrender.com";
 
 function generateCurlSnippet(apiKey: string) {
   return `# ── OpenAI ──

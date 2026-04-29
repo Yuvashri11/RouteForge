@@ -131,6 +131,8 @@ const result = await Bun.build({
   sourcemap: "linked",
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
+    "process.env.BACKEND_URL": JSON.stringify(process.env.BACKEND_URL ?? "https://routeforge-3gfr.onrender.com"),
+    "process.env.API_GATEWAY_URL": JSON.stringify(process.env.API_GATEWAY_URL ?? "https://routeforge-api-backend.onrender.com"),
   },
   ...cliConfig,
 });

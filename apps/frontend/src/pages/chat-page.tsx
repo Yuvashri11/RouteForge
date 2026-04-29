@@ -24,7 +24,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const API_GATEWAY_URL = "http://localhost:4000";
+const API_GATEWAY_URL =
+  process.env.API_GATEWAY_URL ?? "https://routeforge-api-backend.onrender.com";
 const SAVED_CHATS_STORAGE_KEY = "routeforge.chat.saved.v1";
 
 type ChatRole = "user" | "assistant";

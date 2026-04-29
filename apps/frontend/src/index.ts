@@ -32,7 +32,7 @@ async function proxyToBackend(req: Request, path: string) {
 }
 
 const server = serve({
-  port: 5173,
+  port: Number(process.env.PORT ?? 5173),
   routes: {
     "/api/*": (req) => proxyToBackend(req, backendPathFromApi(req)),
     "/api": (req) => proxyToBackend(req, "/"),
