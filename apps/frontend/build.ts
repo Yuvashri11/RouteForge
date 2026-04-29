@@ -131,8 +131,10 @@ const result = await Bun.build({
   sourcemap: "linked",
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
-    "process.env.BACKEND_URL": JSON.stringify(process.env.BACKEND_URL ?? "https://routeforge-3gfr.onrender.com"),
-    "process.env.API_GATEWAY_URL": JSON.stringify(process.env.API_GATEWAY_URL ?? "https://routeforge-api-backend.onrender.com"),
+    // Do NOT inline production backend URLs into the client bundle.
+    // Leave these blank by default so the browser uses relative paths (e.g. `/api`).
+    "process.env.BACKEND_URL": JSON.stringify(process.env.BACKEND_URL ?? ""),
+    "process.env.API_GATEWAY_URL": JSON.stringify(process.env.API_GATEWAY_URL ?? ""),
   },
   ...cliConfig,
 });

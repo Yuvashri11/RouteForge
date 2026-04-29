@@ -17,8 +17,24 @@ interface BoilerplateCodeDialogProps {
   keyName: string;
 }
 
-const API_BASE_URL =
-  process.env.API_GATEWAY_URL ?? "https://routeforge-api-backend.onrender.com";
+// Prefer an explicitly set VITE env in local dev; default to empty string so
+// generated snippets call relative `/api` paths and do not expose any deployed URL.
+let API_BASE_URL = "";
+if (typeof window !== "undefined") {
+  try {
+    // Access import.meta.env only on the client. Some server runtimes don't
+    // expose `import.meta.env` and reading it at module-eval time can produce
+    // runtime errors. Use a try/catch and feature-check.
+    // @ts-ignore
+    if (import.meta && import.meta.env && import.meta.env.VITE_API_GATEWAY_URL) {
+      // @ts-ignore
+      API_BASE_URL = import.meta.env.VITE_API_GATEWAY_URL ?? "";
+    }
+  } catch (e) {
+    API_BASE_URL = "";
+  }
+}
+
 
 function generateCurlSnippet(apiKey: string) {
   return `# ── OpenAI ──

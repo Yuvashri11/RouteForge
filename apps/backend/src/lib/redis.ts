@@ -3,10 +3,21 @@ import { EventEmitter } from "node:events";
 
 const redisUrl = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 
+function attachRedisHandlers(client: Redis, name: string) {
+  client.on("error", (err) => console.error(`[ioredis][${name}] error:`, err));
+  client.on("connect", () => console.log(`[ioredis][${name}] connect`));
+  client.on("ready", () => console.log(`[ioredis][${name}] ready`));
+  client.on("close", () => console.log(`[ioredis][${name}] close`));
+  client.on("reconnecting", () => console.log(`[ioredis][${name}] reconnecting`));
+  client.on("end", () => console.log(`[ioredis][${name}] end`));
+}
+
 // Subscriber client for listening to messages
 export const redisSubscriber = new Redis(redisUrl);
+attachRedisHandlers(redisSubscriber, "subscriber");
 // Publisher client for local publishes
 export const redisPublisher = new Redis(redisUrl);
+attachRedisHandlers(redisPublisher, "publisher");
 
 // Internal event emitter to bridge Redis messages to Elysia Stream
 export const globalEmitter = new EventEmitter();

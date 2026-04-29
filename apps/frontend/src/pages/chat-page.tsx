@@ -24,8 +24,12 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+// Use server-provided env when running on the Bun server; otherwise default
+// to an empty string so client-side code calls relative `/api` endpoints.
 const API_GATEWAY_URL =
-  process.env.API_GATEWAY_URL ?? "https://routeforge-api-backend.onrender.com";
+  (typeof process !== "undefined" && (process as any).env && (process as any).env.API_GATEWAY_URL)
+    ? (process as any).env.API_GATEWAY_URL
+    : "";
 const SAVED_CHATS_STORAGE_KEY = "routeforge.chat.saved.v1";
 
 type ChatRole = "user" | "assistant";
