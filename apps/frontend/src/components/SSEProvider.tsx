@@ -5,7 +5,7 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const eventSource = new EventSource("/api/events");
+    const eventSource = new EventSource("/events");
 
     const invalidateProfileQueries = () => {
       // Refetch currently mounted views immediately when profile usage changes.

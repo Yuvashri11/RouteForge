@@ -14,6 +14,10 @@ function backendPathFromApi(req: Request) {
   return `${strippedPath}${url.search}`;
 }
 
+function backendPathFromRequest(req: Request) {
+  return requestPath(req);
+}
+
 async function proxyToBackend(req: Request, path: string) {
   const target = new URL(path, backendOrigin);
   const bodyAllowed = req.method !== "GET" && req.method !== "HEAD";
@@ -34,6 +38,17 @@ async function proxyToBackend(req: Request, path: string) {
 const server = serve({
   port: Number(process.env.PORT ?? 5173),
   routes: {
+    "/auth/*": (req) => proxyToBackend(req, backendPathFromRequest(req)),
+    "/api-keys": (req) => proxyToBackend(req, backendPathFromRequest(req)),
+    "/api-keys/*": (req) => proxyToBackend(req, backendPathFromRequest(req)),
+    "/models": (req) => proxyToBackend(req, backendPathFromRequest(req)),
+    "/models/*": (req) => proxyToBackend(req, backendPathFromRequest(req)),
+    "/payments": (req) => proxyToBackend(req, backendPathFromRequest(req)),
+    "/payments/*": (req) => proxyToBackend(req, backendPathFromRequest(req)),
+    "/metrics": (req) => proxyToBackend(req, backendPathFromRequest(req)),
+    "/metrics/*": (req) => proxyToBackend(req, backendPathFromRequest(req)),
+    "/events": (req) => proxyToBackend(req, backendPathFromRequest(req)),
+    "/events/*": (req) => proxyToBackend(req, backendPathFromRequest(req)),
     "/api/*": (req) => proxyToBackend(req, backendPathFromApi(req)),
     "/api": (req) => proxyToBackend(req, "/"),
     "/*": index,
