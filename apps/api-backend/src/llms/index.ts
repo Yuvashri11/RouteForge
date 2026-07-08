@@ -24,7 +24,10 @@ const ENV_KEY_MAP: Record<string, string> = {
 };
 
 export function getLlmProvider(providerName: string): LlmProvider {
-  const normalized = providerName.toLowerCase();
+  let normalized = providerName.toLowerCase().trim();
+  if (normalized.endsWith(" api")) {
+    normalized = normalized.slice(0, -4).trim();
+  }
   const ProviderClass = PROVIDER_MAP[normalized];
 
   if (!ProviderClass) {

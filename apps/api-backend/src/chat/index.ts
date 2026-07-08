@@ -136,7 +136,11 @@ export const chatRoutes = new Elysia({ prefix: "/api/v1/chat" })
           const stream = ChatService.streamComplete(
             apiKey,
             body.model,
-            body.messages
+            body.messages,
+            {
+              models: body.models,
+              provider: body.provider,
+            }
           );
 
           const encoder = new TextEncoder();
@@ -173,6 +177,16 @@ export const chatRoutes = new Elysia({ prefix: "/api/v1/chat" })
                 }
               } catch (err) {
                 const safeError = toSafeErrorPayload(err);
+                const meta = getErrorMeta(err);
+                console.error("Stream completion error:", {
+                  status: safeError.status,
+                  code: safeError.code,
+                  type: safeError.type,
+                  message: safeError.message,
+                  sourceName: meta.name,
+                  sourceMessage: sanitizeSensitiveText(meta.message),
+                  stack: err instanceof Error ? err.stack : undefined,
+                });
                 const errorData = JSON.stringify({
                   error: {
                     message: safeError.message,
@@ -203,7 +217,11 @@ export const chatRoutes = new Elysia({ prefix: "/api/v1/chat" })
         const result = await ChatService.complete(
           apiKey,
           body.model,
-          body.messages
+          body.messages,
+          {
+            models: body.models,
+            provider: body.provider,
+          }
         );
 
         return {

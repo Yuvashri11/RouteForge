@@ -2,6 +2,7 @@ import { serve } from "bun";
 import index from "./index.html";
 
 const backendOrigin = process.env.BACKEND_URL ?? "http://localhost:3000";
+const apiGatewayOrigin = process.env.API_GATEWAY_URL ?? "http://localhost:4000";
 
 function requestPath(req: Request) {
   const url = new URL(req.url);
@@ -35,6 +36,23 @@ async function proxyToBackend(req: Request, path: string) {
   });
 }
 
+async function proxyToApiGateway(req: Request, path: string) {
+  const target = new URL(path, apiGatewayOrigin);
+  const bodyAllowed = req.method !== "GET" && req.method !== "HEAD";
+
+  const response = await fetch(target, {
+    method: req.method,
+    headers: req.headers,
+    body: bodyAllowed ? req.body : undefined,
+  });
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
 const server = serve({
   port: Number(process.env.PORT ?? 5173),
   routes: {
@@ -49,6 +67,7 @@ const server = serve({
     "/metrics/*": (req) => proxyToBackend(req, backendPathFromRequest(req)),
     "/events": (req) => proxyToBackend(req, backendPathFromRequest(req)),
     "/events/*": (req) => proxyToBackend(req, backendPathFromRequest(req)),
+    "/api/v1/chat/*": (req) => proxyToApiGateway(req, requestPath(req)),
     "/api/*": (req) => proxyToBackend(req, backendPathFromApi(req)),
     "/api": (req) => proxyToBackend(req, "/"),
     "/*": index,
